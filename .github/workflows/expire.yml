@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  actions: write   # 비공개 전환 뒤 이 작업 끄기용
 jobs:
   expire:
     runs-on: ubuntu-latest
@@ -39,8 +40,16 @@ jobs:
             echo "not yet ($today)"
           fi
       - name: 기한 지났으면 저장소 비공개 전환
+        id: private
         # 파기 push가 실패해도 비공개 전환은 한다(보안 우선). 이미 비공개면 같은 명령이 그대로 통과한다.
         if: ${{ !cancelled() && steps.expire.outputs.expired == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.HRP_ADMIN_TOKEN }}
         run: gh repo edit "$GITHUB_REPOSITORY" --visibility private --accept-visibility-change-consequences
+      - name: 비공개 전환 뒤 이 작업 끄기
+        # 전환이 성공했을 때만 끈다. 실패하면 켜 둬서 다음 날 다시 시도한다.
+        # 관리자 토큰이 아닌 레포 자체 토큰(actions: write)으로 끈다 — 11-10 테스트에서 HRP_ADMIN_TOKEN으로는 실패.
+        if: ${{ !cancelled() && steps.private.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow disable expire.yml -R "$GITHUB_REPOSITORY"
